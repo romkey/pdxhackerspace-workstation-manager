@@ -1,0 +1,264 @@
+---
+- name: Update and upgrade Debian-family systems
+  when: ansible_facts.os_family == "Debian"
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: dist
+    autoremove: true
+
+- name: Update and upgrade RedHat-family systems
+  when: ansible_facts.os_family == "RedHat"
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest
+    update_cache: true
+
+- name: Install prerequisites for Docker repo on Debian-family systems
+  when:
+    - ansible_facts.os_family == "Debian"
+    - docker_use_official_repo | default(true)
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+    state: present
+    update_cache: true
+
+- name: Ensure keyring directory exists on Debian-family systems
+  when:
+    - ansible_facts.os_family == "Debian"
+    - docker_use_official_repo | default(true)
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Add Docker GPG key on Debian-family systems
+  when:
+    - ansible_facts.os_family == "Debian"
+    - docker_use_official_repo | default(true)
+  ansible.builtin.get_url:
+    url: "https://download.docker.com/linux/{{ ansible_facts.distribution | lower }}/gpg"
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+
+- name: Add Docker apt repository on Debian-family systems
+  when:
+    - ansible_facts.os_family == "Debian"
+    - docker_use_official_repo | default(true)
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch={{ docker_apt_arch_map.get(ansible_facts.architecture, ansible_facts.architecture) }} signed-by=/etc/apt/keyrings/docker.asc]
+      https://download.docker.com/linux/{{ ansible_facts.distribution | lower }}
+      {{ ansible_facts.distribution_release }} stable
+    filename: docker
+    state: present
+
+- name: Add Docker GPG key on RedHat-family systems
+  when:
+    - ansible_facts.os_family == "RedHat"
+    - docker_use_official_repo | default(true)
+  ansible.builtin.rpm_key:
+    key: https://download.docker.com/linux/centos/gpg
+    state: present
+
+- name: Add Docker yum repository on RedHat-family systems
+  when:
+    - ansible_facts.os_family == "RedHat"
+    - docker_use_official_repo | default(true)
+  ansible.builtin.yum_repository:
+    name: docker-ce-stable
+    description: Docker CE Stable
+    baseurl: https://download.docker.com/linux/centos/$releasever/$basearch/stable
+    enabled: true
+    gpgcheck: true
+    gpgkey: https://download.docker.com/linux/centos/gpg
+
+- name: Install/update Linux software on Debian-family systems
+  when: ansible_facts.os_family == "Debian"
+  ansible.builtin.apt:
+    name: "{{ linux_packages_debian + core_tools_linux_packages }}"
+    state: "{{ software_state }}"
+    update_cache: true
+
+- name: Install/update Linux software on RedHat-family systems
+  when: ansible_facts.os_family == "RedHat"
+  ansible.builtin.dnf:
+    name: "{{ linux_packages_redhat + core_tools_linux_packages }}"
+    state: "{{ software_state }}"
+
+- name: Install optional Linux software on Debian-family systems (best effort)
+  when: ansible_facts.os_family == "Debian"
+  ansible.builtin.apt:
+    name: "{{ linux_optional_packages_debian }}"
+    state: "{{ software_state }}"
+    update_cache: true
+  ignore_errors: true
+
+- name: Install optional Linux software on RedHat-family systems (best effort)
+  when: ansible_facts.os_family == "RedHat"
+  ansible.builtin.dnf:
+    name: "{{ linux_optional_packages_redhat }}"
+    state: "{{ software_state }}"
+  ignore_errors: true
+
+- name: Ensure Chrome managed policy directory exists on Linux
+  ansible.builtin.file:
+    path: /etc/opt/chrome/policies/managed
+    state: directory
+    mode: "0755"
+
+- name: Configure Chrome homepage and startup URL on Linux
+  ansible.builtin.copy:
+    dest: /etc/opt/chrome/policies/managed/workstationmanager-homepage.json
+    mode: "0644"
+    content: |
+      {
+        "HomepageLocation": "{{ browser_homepage_url }}",
+        "HomepageIsNewTabPage": false,
+        "RestoreOnStartup": 4,
+        "RestoreOnStartupURLs": [
+          "{{ browser_homepage_url }}"
+        ]
+      }
+
+- name: Ensure Firefox policy directory exists on Linux
+  ansible.builtin.file:
+    path: /etc/firefox/policies
+    state: directory
+    mode: "0755"
+
+- name: Configure Firefox homepage on Linux
+  ansible.builtin.copy:
+    dest: /etc/firefox/policies/policies.json
+    mode: "0644"
+    content: |
+      {
+        "policies": {
+          "Homepage": {
+            "URL": "{{ browser_homepage_url }}",
+            "StartPage": "homepage",
+            "Locked": true
+          }
+        }
+      }
+
+- name: Query OpenSCAD releases metadata
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.uri:
+    url: "{{ openscad_releases_api_url }}"
+    method: GET
+    return_content: true
+  register: openscad_release_response
+
+- name: Select pinned or latest OpenSCAD release
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.set_fact:
+    openscad_selected_release: >-
+      {{
+        (
+          openscad_release_response.json
+          | selectattr("tag_name", "equalto", openscad_nightly_tag)
+          | rejectattr("draft", "equalto", true)
+          | list
+          | first
+        ) if (openscad_nightly_tag | default("") | length > 0) else (
+          openscad_release_response.json
+          | selectattr("prerelease", "equalto", true)
+          | rejectattr("draft", "equalto", true)
+          | list
+          | first
+        )
+      }}
+
+- name: Ensure OpenSCAD release was found
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.assert:
+    that:
+      - openscad_selected_release is defined
+      - openscad_selected_release is not none
+    fail_msg: >-
+      OpenSCAD release not found for tag '{{ openscad_nightly_tag }}'.
+      Set openscad_nightly_tag to a valid tag or leave empty for latest prerelease.
+
+- name: Select OpenSCAD nightly Linux asset
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.set_fact:
+    openscad_linux_download_url: >-
+      {{
+        (
+          openscad_selected_release.assets
+          | selectattr("name", "search", openscad_linux_asset_regex)
+          | map(attribute="browser_download_url")
+          | list
+          | first
+        )
+      }}
+
+- name: Ensure OpenSCAD Linux asset was found
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.assert:
+    that:
+      - openscad_linux_download_url is defined
+      - openscad_linux_download_url | length > 0
+    fail_msg: >-
+      No OpenSCAD Linux asset matched regex '{{ openscad_linux_asset_regex }}'
+      in release '{{ openscad_selected_release.tag_name | default("unknown") }}'.
+
+- name: Ensure OpenSCAD install directory exists
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.file:
+    path: /opt/openscad-nightly
+    state: directory
+    mode: "0755"
+
+- name: Download OpenSCAD nightly AppImage
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.get_url:
+    url: "{{ openscad_linux_download_url }}"
+    dest: /opt/openscad-nightly/OpenSCAD-nightly.AppImage
+    mode: "0755"
+
+- name: Link OpenSCAD nightly executable
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.file:
+    src: /opt/openscad-nightly/OpenSCAD-nightly.AppImage
+    dest: /usr/local/bin/openscad
+    state: link
+
+- name: Install/update Docker CE packages on Debian-family systems
+  when:
+    - ansible_facts.os_family == "Debian"
+    - docker_use_official_repo | default(true)
+  ansible.builtin.apt:
+    name: "{{ docker_packages_debian }}"
+    state: "{{ software_state }}"
+    update_cache: true
+
+- name: Install/update Docker CE packages on RedHat-family systems
+  when:
+    - ansible_facts.os_family == "RedHat"
+    - docker_use_official_repo | default(true)
+  ansible.builtin.dnf:
+    name: "{{ docker_packages_redhat }}"
+    state: "{{ software_state }}"
+
+- name: Fallback to distro Docker on Debian-family systems
+  when:
+    - ansible_facts.os_family == "Debian"
+    - not (docker_use_official_repo | default(true))
+  ansible.builtin.apt:
+    name:
+      - docker.io
+    state: "{{ software_state }}"
+    update_cache: true
+
+- name: Fallback to distro Docker on RedHat-family systems
+  when:
+    - ansible_facts.os_family == "RedHat"
+    - not (docker_use_official_repo | default(true))
+  ansible.builtin.dnf:
+    name:
+      - docker
+    state: "{{ software_state }}"

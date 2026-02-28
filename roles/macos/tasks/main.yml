@@ -1,0 +1,188 @@
+---
+- name: Update macOS system software
+  become: true
+  ansible.builtin.command: softwareupdate --install --all
+  changed_when: false
+
+- name: Update Homebrew formulae
+  community.general.homebrew:
+    update_homebrew: true
+    upgrade_all: true
+
+- name: Query OpenSCAD releases metadata
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.uri:
+    url: "{{ openscad_releases_api_url }}"
+    method: GET
+    return_content: true
+  register: openscad_release_response
+
+- name: Select pinned or latest OpenSCAD release
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.set_fact:
+    openscad_selected_release: >-
+      {{
+        (
+          openscad_release_response.json
+          | selectattr("tag_name", "equalto", openscad_nightly_tag)
+          | rejectattr("draft", "equalto", true)
+          | list
+          | first
+        ) if (openscad_nightly_tag | default("") | length > 0) else (
+          openscad_release_response.json
+          | selectattr("prerelease", "equalto", true)
+          | rejectattr("draft", "equalto", true)
+          | list
+          | first
+        )
+      }}
+        
+- name: Ensure OpenSCAD release was found
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.assert:
+    that:
+      - openscad_selected_release is defined
+      - openscad_selected_release is not none
+    fail_msg: >-
+      OpenSCAD release not found for tag '{{ openscad_nightly_tag }}'.
+      Set openscad_nightly_tag to a valid tag or leave empty for latest prerelease.
+
+- name: Select OpenSCAD macOS asset download URL
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.set_fact:
+    openscad_macos_download_url: >-
+      {{
+        (
+          openscad_selected_release.assets
+          | selectattr("name", "search", openscad_macos_asset_regex)
+          | map(attribute="browser_download_url")
+          | list
+          | first
+        )
+      }}
+
+- name: Ensure OpenSCAD macOS asset was found
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.assert:
+    that:
+      - openscad_macos_download_url is defined
+      - openscad_macos_download_url | length > 0
+    fail_msg: >-
+      No OpenSCAD macOS asset matched regex '{{ openscad_macos_asset_regex }}'
+      in release '{{ openscad_selected_release.tag_name | default("unknown") }}'.
+
+- name: Download OpenSCAD nightly for macOS
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.get_url:
+    url: "{{ openscad_macos_download_url }}"
+    dest: /tmp/openscad-nightly.dmg
+    mode: "0644"
+
+- name: Install OpenSCAD nightly from official release asset
+  when: openscad_nightly_enabled | default(true)
+  become: true
+  ansible.builtin.shell: |
+    set -euo pipefail
+    MOUNT_DIR="/tmp/openscad-nightly-mount"
+    hdiutil detach "${MOUNT_DIR}" >/dev/null 2>&1 || true
+    hdiutil attach "/tmp/openscad-nightly.dmg" -nobrowse -readonly -mountpoint "${MOUNT_DIR}" >/dev/null
+    APP_PATH="$(python3 - <<'PY'
+import glob
+apps = glob.glob('/tmp/openscad-nightly-mount/*.app')
+print(apps[0] if apps else '')
+PY
+)"
+    if [ -z "${APP_PATH}" ]; then
+      echo "No .app bundle found in OpenSCAD nightly dmg" >&2
+      exit 1
+    fi
+    rm -rf /Applications/OpenSCAD.app
+    cp -R "${APP_PATH}" /Applications/OpenSCAD.app
+    hdiutil detach "${MOUNT_DIR}" >/dev/null
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+- name: Install and update macOS GUI applications
+  community.general.homebrew_cask:
+    name: "{{ macos_homebrew_casks }}"
+    state: "{{ software_state }}"
+
+- name: Install optional macOS GUI applications (best effort)
+  community.general.homebrew_cask:
+    name: "{{ macos_optional_homebrew_casks }}"
+    state: "{{ software_state }}"
+  ignore_errors: true
+
+- name: Install and update macOS CLI/developer formulae
+  community.general.homebrew:
+    name: "{{ macos_homebrew_formulas + core_tools_macos_homebrew_formulas }}"
+    state: "{{ software_state }}"
+
+- name: Ensure Firefox enterprise policy directory exists on macOS
+  become: true
+  ansible.builtin.file:
+    path: /Applications/Firefox.app/Contents/Resources/distribution
+    state: directory
+    mode: "0755"
+
+- name: Configure Firefox homepage on macOS
+  become: true
+  ansible.builtin.copy:
+    dest: /Applications/Firefox.app/Contents/Resources/distribution/policies.json
+    mode: "0644"
+    content: |
+      {
+        "policies": {
+          "Homepage": {
+            "URL": "{{ browser_homepage_url }}",
+            "StartPage": "homepage",
+            "Locked": true
+          }
+        }
+      }
+
+- name: Ensure managed preferences directory exists on macOS
+  become: true
+  ansible.builtin.file:
+    path: /Library/Managed Preferences
+    state: directory
+    mode: "0755"
+
+- name: Configure Chrome homepage and startup URL on macOS
+  become: true
+  ansible.builtin.copy:
+    dest: /Library/Managed Preferences/com.google.Chrome.plist
+    mode: "0644"
+    content: |
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+        <key>HomepageLocation</key>
+        <string>{{ browser_homepage_url }}</string>
+        <key>HomepageIsNewTabPage</key>
+        <false/>
+        <key>RestoreOnStartup</key>
+        <integer>4</integer>
+        <key>RestoreOnStartupURLs</key>
+        <array>
+          <string>{{ browser_homepage_url }}</string>
+        </array>
+      </dict>
+      </plist>
+
+- name: Configure Safari homepage on macOS
+  become: true
+  ansible.builtin.copy:
+    dest: /Library/Managed Preferences/com.apple.Safari.plist
+    mode: "0644"
+    content: |
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+        <key>HomePage</key>
+        <string>{{ browser_homepage_url }}</string>
+      </dict>
+      </plist>

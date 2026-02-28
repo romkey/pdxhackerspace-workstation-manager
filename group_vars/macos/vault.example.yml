@@ -1,0 +1,4 @@
+---
+# Copy to group_vars/macos/vault.yml and encrypt:
+# ansible-vault encrypt group_vars/macos/vault.yml
+vault_macos_ssh_password: "REPLACE_ME"

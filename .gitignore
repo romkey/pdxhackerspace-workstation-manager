@@ -1,0 +1,30 @@
+# macOS and editor noise
+.DS_Store
+.vscode/
+.idea/
+
+# Python / Ansible runtime artifacts
+__pycache__/
+*.pyc
+*.retry
+*.log
+
+# Local virtual envs
+.venv/
+venv/
+
+# Secrets (keep only *.example.yml in git)
+group_vars/**/vault.yml
+group_vars/**/vault_pass.txt
+vault_pass.txt
+
+# Optional local inventory overrides with real hosts/credentials
+inventories/**/hosts.local.yml
+inventories/**/group_vars/
+
+# Env files
+.env
+.env.*
+
+# Local transcripts/artifacts
+agent-transcripts/

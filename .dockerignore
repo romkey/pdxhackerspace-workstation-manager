@@ -1,0 +1,7 @@
+.git
+.DS_Store
+*.retry
+*.pyc
+__pycache__/
+.venv/
+agent-transcripts/

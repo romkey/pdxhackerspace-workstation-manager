@@ -1,0 +1,4 @@
+---
+# Copy to group_vars/linux/vault.yml and encrypt:
+# ansible-vault encrypt group_vars/linux/vault.yml
+vault_linux_ssh_password: "REPLACE_ME"

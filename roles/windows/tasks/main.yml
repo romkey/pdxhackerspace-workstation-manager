@@ -1,0 +1,179 @@
+---
+- name: Install Chocolatey packages
+  chocolatey.chocolatey.win_chocolatey:
+    name: "{{ windows_choco_packages + core_tools_windows_choco_packages }}"
+    state: "{{ software_state }}"
+
+- name: Install optional Chocolatey packages (best effort)
+  chocolatey.chocolatey.win_chocolatey:
+    name: "{{ windows_optional_choco_packages }}"
+    state: "{{ software_state }}"
+  ignore_errors: true
+
+- name: Set Chrome homepage policy URL on Windows
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\Policies\Google\Chrome
+    name: HomepageLocation
+    data: "{{ browser_homepage_url }}"
+    type: string
+
+- name: Force Chrome homepage behavior on Windows
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\Policies\Google\Chrome
+    name: HomepageIsNewTabPage
+    data: 0
+    type: dword
+
+- name: Force Chrome startup behavior on Windows
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\Policies\Google\Chrome
+    name: RestoreOnStartup
+    data: 4
+    type: dword
+
+- name: Set Chrome startup URL on Windows
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\Policies\Google\Chrome\RestoreOnStartupURLs
+    name: "1"
+    data: "{{ browser_homepage_url }}"
+    type: string
+
+- name: Set Edge homepage policy URL on Windows
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\Policies\Microsoft\Edge
+    name: HomepageLocation
+    data: "{{ browser_homepage_url }}"
+    type: string
+
+- name: Force Edge homepage behavior on Windows
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\Policies\Microsoft\Edge
+    name: HomepageIsNewTabPage
+    data: 0
+    type: dword
+
+- name: Force Edge startup behavior on Windows
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\Policies\Microsoft\Edge
+    name: RestoreOnStartup
+    data: 4
+    type: dword
+
+- name: Set Edge startup URL on Windows
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\Policies\Microsoft\Edge\RestoreOnStartupURLs
+    name: "1"
+    data: "{{ browser_homepage_url }}"
+    type: string
+
+- name: Set Firefox homepage mode on Windows
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\Policies\Mozilla\Firefox\Homepage
+    name: StartPage
+    data: homepage
+    type: string
+
+- name: Set Firefox homepage URL on Windows
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\Policies\Mozilla\Firefox\Homepage
+    name: URL
+    data: "{{ browser_homepage_url }}"
+    type: string
+
+- name: Lock Firefox homepage policy on Windows
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\Policies\Mozilla\Firefox\Homepage
+    name: Locked
+    data: 1
+    type: dword
+
+- name: Query OpenSCAD releases metadata
+  when: openscad_nightly_enabled | default(true)
+  ansible.windows.win_uri:
+    url: "{{ openscad_releases_api_url }}"
+    method: GET
+    return_content: true
+  register: openscad_release_response
+
+- name: Parse OpenSCAD releases payload
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.set_fact:
+    openscad_release_list: "{{ openscad_release_response.content | from_json }}"
+
+- name: Select pinned or latest OpenSCAD release
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.set_fact:
+    openscad_selected_release: >-
+      {{
+        (
+          openscad_release_list
+          | selectattr("tag_name", "equalto", openscad_nightly_tag)
+          | rejectattr("draft", "equalto", true)
+          | list
+          | first
+        ) if (openscad_nightly_tag | default("") | length > 0) else (
+          openscad_release_list
+          | selectattr("prerelease", "equalto", true)
+          | rejectattr("draft", "equalto", true)
+          | list
+          | first
+        )
+      }}
+
+- name: Ensure OpenSCAD release was found
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.assert:
+    that:
+      - openscad_selected_release is defined
+      - openscad_selected_release is not none
+    fail_msg: >-
+      OpenSCAD release not found for tag '{{ openscad_nightly_tag }}'.
+      Set openscad_nightly_tag to a valid tag or leave empty for latest prerelease.
+
+- name: Select OpenSCAD nightly Windows asset
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.set_fact:
+    openscad_windows_download_url: >-
+      {{
+        (
+          openscad_selected_release.assets
+          | selectattr("name", "search", openscad_windows_asset_regex)
+          | map(attribute="browser_download_url")
+          | list
+          | first
+        )
+      }}
+
+- name: Ensure OpenSCAD Windows asset was found
+  when: openscad_nightly_enabled | default(true)
+  ansible.builtin.assert:
+    that:
+      - openscad_windows_download_url is defined
+      - openscad_windows_download_url | length > 0
+    fail_msg: >-
+      No OpenSCAD Windows asset matched regex '{{ openscad_windows_asset_regex }}'
+      in release '{{ openscad_selected_release.tag_name | default("unknown") }}'.
+
+- name: Ensure temporary download directory exists
+  when: openscad_nightly_enabled | default(true)
+  ansible.windows.win_file:
+    path: C:\Temp
+    state: directory
+
+- name: Download OpenSCAD nightly installer
+  when: openscad_nightly_enabled | default(true)
+  ansible.windows.win_get_url:
+    url: "{{ openscad_windows_download_url }}"
+    dest: C:\Temp\openscad-nightly-installer.exe
+
+- name: Install OpenSCAD nightly from official release asset
+  when: openscad_nightly_enabled | default(true)
+  ansible.windows.win_package:
+    path: C:\Temp\openscad-nightly-installer.exe
+    arguments: /S
+    state: present
+
+- name: Apply available Windows Updates
+  ansible.windows.win_updates:
+    category_names: "*"
+    reboot: true

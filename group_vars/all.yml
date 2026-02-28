@@ -1,0 +1,151 @@
+---
+# Set this to false to install but not force latest versions.
+software_state: latest
+browser_homepage_url: "http://ctrlh"
+
+core_tools_macos_homebrew_formulas:
+  - emacs
+  - git
+  - vim
+
+core_tools_linux_packages:
+  - emacs
+  - git
+  - vim
+
+core_tools_windows_choco_packages:
+  - emacs
+  - git
+  - vim
+
+openscad_nightly_enabled: true
+openscad_releases_api_url: https://api.github.com/repos/openscad/openscad/releases
+# Pin to a specific OpenSCAD release tag (example: "openscad-2026.01.20").
+# Leave empty to use latest prerelease nightly.
+openscad_nightly_tag: ""
+openscad_macos_asset_regex: "(?i)\\.dmg$"
+openscad_linux_asset_regex: "(?i)(x86_64|amd64).*\\.AppImage$"
+openscad_windows_asset_regex: "(?i)(installer|setup).*\\.exe$"
+
+macos_homebrew_casks:
+  - prusaslicer
+  - firefox
+  - google-chrome
+  - docker
+  - visual-studio-code
+  - gimp
+  - arduino-ide
+  - audacity
+  - iterm2
+  - aquamacs
+  - freecad
+  - handbrake
+  - blender
+  - hdhomerun
+  - raspberry-pi-imager
+  - subethaedit
+  - wireshark
+  - zoom
+  - kicad
+
+# Optional casks that may not be available on every Homebrew/Cask setup.
+macos_optional_homebrew_casks:
+  - meshmixer
+  - opencode
+  - github-copilot-for-xcode
+
+macos_homebrew_formulas:
+  - ollama
+  - llama.cpp
+
+# Linux package names vary by distro. Adjust to your fleet.
+linux_packages_debian:
+  - prusa-slicer
+  - firefox
+  - google-chrome-stable
+  - code
+  - gimp
+  - arduino
+  - audacity
+  - gnome-terminal
+  - freecad
+  - handbrake
+  - blender
+  - wireshark
+  - rpi-imager
+  - kicad
+
+linux_packages_redhat:
+  - prusa-slicer
+  - firefox
+  - google-chrome-stable
+  - code
+  - gimp
+  - arduino
+  - audacity
+  - gnome-terminal
+  - freecad
+  - handbrake
+  - blender
+  - wireshark
+  - kicad
+
+# Optional Linux packages; installed best effort because naming/availability varies.
+linux_optional_packages_debian:
+  - zoom
+  - hdhomerun-config-gui
+  - opencode
+  - github-copilot-cli
+
+linux_optional_packages_redhat:
+  - zoom
+  - hdhomerun-config-gui
+  - opencode
+  - github-copilot-cli
+
+# Prefer Docker's official CE repositories when possible.
+docker_use_official_repo: true
+docker_apt_arch_map:
+  x86_64: amd64
+  aarch64: arm64
+  armv7l: armhf
+
+docker_packages_debian:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
+
+docker_packages_redhat:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
+
+windows_choco_packages:
+  - prusaslicer
+  - firefox
+  - googlechrome
+  - docker-desktop
+  - vscode
+  - gimp
+  - arduino
+  - audacity
+  - microsoft-windows-terminal
+  - freecad
+  - handbrake
+  - blender
+  - hdhomerun-view
+  - raspberry-pi-imager
+  - wireshark
+  - zoom
+  - kicad
+
+# Optional Chocolatey packages that may not exist in all feeds.
+windows_optional_choco_packages:
+  - meshmixer
+  - subethaedit
+  - opencode
+  - github-copilot-for-visual-studio-code
