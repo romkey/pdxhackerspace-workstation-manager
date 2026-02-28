@@ -271,12 +271,26 @@ Open a shell in the container:
 make shell
 ```
 
+Edit Vault files from container (choose editor each run):
+
+```bash
+# build image first after Dockerfile changes
+make build
+
+# default editor is vi
+make vault-edit VAULT_FILE=group_vars/linux/vault.yml
+
+# use emacs
+make vault-edit VAULT_FILE=group_vars/windows/vault.yml EDITOR_CMD=emacs
+```
+
 Notes:
 
 - `docker-compose.yml` mounts this repo at `/workspace`.
 - `${HOME}/.ssh` is mounted read-only for SSH-based connections.
 - `ANSIBLE_CONFIG` is set to `/workspace/ansible.cfg` in the container.
 - WinRM-based Windows management works from this container via `pywinrm`.
+- Container image includes both `vi` and terminal `emacs` for `ansible-vault edit`.
 
 ## GitHub image build workflow
 
@@ -315,6 +329,7 @@ make playbook-image
 make playbook-image LIMIT=windows
 make playbook-image EXTRA_ARGS="--ask-vault-pass --check"
 make shell-image
+make vault-edit-image VAULT_FILE=group_vars/macos/vault.yml EDITOR_CMD=emacs
 ```
 
 By default these use `docker-compose.image.yml`. Override with:
