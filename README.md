@@ -308,6 +308,21 @@ Then run:
 docker compose -f docker-compose.image.yml run --rm ansible ansible-playbook playbooks/site.yml
 ```
 
+You can also use `Makefile` helpers with the published-image compose file:
+
+```bash
+make playbook-image
+make playbook-image LIMIT=windows
+make playbook-image EXTRA_ARGS="--ask-vault-pass --check"
+make shell-image
+```
+
+By default these use `docker-compose.image.yml`. Override with:
+
+```bash
+make playbook-image IMAGE_COMPOSE_FILE=docker-compose.image.example.yml
+```
+
 ## Notes
 
 - Linux package names are distro-specific. Adjust `group_vars/all.yml` for your actual repositories.
